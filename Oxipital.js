@@ -174,6 +174,7 @@ var orbGroupParameters = {
 		"Alpha Speed Threshold": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Texture Opacity": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Particle Size": { "type": "float", "default": 0, "min": 0, "max": 1 },
+		"Particle Hyper Size": { "type": "float", "default": 0, "min": 0, "max": 1 },
 	},
 	"Physics": {
 		"Force Weight": { "type": "float", "default": 1, "min": 0, "max": 1 },
