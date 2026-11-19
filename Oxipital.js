@@ -67,6 +67,7 @@ for (var mb = 1; mb <= 8; mb++) masterBalletNames.push("Light Group " + mb);
 // - "customComponent" : full path in the group ("LineDancePattern/weight")
 // - "field" : another field name on the group component (used for Unity methods, which start with a capital)
 // - "type": "trigger" : the Base Value is a trigger that calls the Unity method, nothing is sent on a full push
+// - "only" : sent only to that group component ("OrbGroup"), "noUnity" : never sent (no Unity field)
 // New entries must keep the Unity default value as default : it is pushed to Unity after every sync.
 var danceGroupParameters = {
 	"Transform":
@@ -108,7 +109,7 @@ var danceGroupParameters = {
 	},
 	"Dancer": {
 		"Dancer Size": { "type": "float", "default": 1, "min": 0, "max": 20 },
-		"Emitter Scale": { "type": "p3d", "default": [1, 1, 1] },
+		"Emitter Scale": { "type": "p3d", "default": [1, 1, 1], "only": "OrbGroup" },
 		"Dancer Hyper Size": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Dancer Size Spread": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Dancer Weight Size Factor": { "type": "float", "default": 0, "min": 0, "max": 1 },
@@ -151,7 +152,7 @@ var forceGroupParameters = {
 	"Turbulence Curl": {
 		"Curl Intensity": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Curl Frequency": { "type": "float", "default": 0, "min": 0, "max": 5 },
-		"Curl Drag": { "type": "float", "default": 0, "min": 0, "max": 1 },
+		"Curl Drag": { "type": "float", "default": 0, "min": 0, "max": 1, "noUnity": true }, // no such field in StandardForceGroup, kept for saved sessions
 		"Curl Octaves": { "type": "float", "default": 1, "min": 1, "max": 8 },
 		"Curl Roughness": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Curl Lacunarity": { "type": "float", "default": 0, "min": 0, "max": 1 },
@@ -470,6 +471,8 @@ function addEntries(items, parameters, unityComponentName) {
 				var paramContainer = paramContainers[k];
 				var props = categoryProps[paramContainer.niceName];
 				if (props == null) continue;
+				// Not sent : the Unity field does not exist (on this group type)
+				if (props.noUnity || (props.only != null && props.only != unityComponentName)) continue;
 
 				var base = findControllable(paramContainer, "baseValue");
 				if (base == null) {
