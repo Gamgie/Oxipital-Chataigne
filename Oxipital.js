@@ -654,7 +654,9 @@ function addParametersToItem(item, parameters) {
 				else if (paramMin != null) paramContainer.addIntParameter("Base Value", "Base value for this parameter", paramDefault, paramMin);
 				else paramContainer.addIntParameter("Base Value", "Base value for this parameter", paramDefault);
 			} else if (paramType == "p3d") {
-				paramContainer.addPoint3DParameter("Base Value", "Base value for this parameter", paramDefault);
+				// The default given to addPoint3DParameter is ignored (the point was created at 0, 0, 0) : set it afterwards
+				var p3d = paramContainer.addPoint3DParameter("Base Value", "Base value for this parameter");
+				p3d.set(paramDefault);
 			} else if (paramType == "color") {
 				paramContainer.addColorParameter("Base Value", "Base value for this parameter", paramDefault);
 			} else if (paramType == "enum") {
