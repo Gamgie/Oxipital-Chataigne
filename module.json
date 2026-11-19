@@ -2,7 +2,7 @@
 	"name": "Oxipital",
 	"type": "OSCQuery",
 	"path": "Software",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "Control Oxipital.",
 	"url": "",
 	"downloadURL": "",
@@ -31,6 +31,12 @@
 				"max": 8,
 				"default": 4
 			},
+			"Num Light Groups": {
+				"type": "Integer",
+				"min": 0,
+				"max": 8,
+				"default": 0
+			},
 			"Num Macros": {
 				"type": "Integer",
 				"min": 0,
@@ -52,6 +58,9 @@
 			"type": "Container"
 		},
 		"Force Groups": {
+			"type": "Container"
+		},
+		"Light Groups": {
 			"type": "Container"
 		}
 	},

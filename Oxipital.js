@@ -1,5 +1,6 @@
 var numForceGroupsParam = local.parameters.setup.numForceGroups;
 var numOrbGroupsParam = local.parameters.setup.numOrbGroups;
+var numLightGroupsParam = local.parameters.setup.numLightGroups;
 var numMacrosParam = local.parameters.setup.numMacros;
 var isConnectedParam = local.parameters.isConnected;
 var syncDataTrigger = local.parameters.syncData;
@@ -7,15 +8,18 @@ var syncDataTrigger = local.parameters.syncData;
 var macrosGroup = local.parameters.macros;
 var forceGroupsGroup = local.parameters.forceGroups;
 var orbGroupsGroup = local.parameters.orbGroups;
+var lightGroupsGroup = local.parameters.lightGroups;
 
 var forces = [];
 var orbGroups = [];
+var lightGroups = [];
 var macros = [];
 
 //Unity links, taken from the OSCQuery structure after each sync
 var unityBallet = null;
 var unityForceGroupsParam = null;
 var unityOrbGroupsParam = null;
+var unityLightGroupsParam = null;
 
 // One entry per orb / force group parameter, rebuilt when the groups or macros change : a value change no longer
 // walks the whole module tree nor searches the Unity parameter by name again.
@@ -49,6 +53,18 @@ var wasConnected = false;
 var groupSyncTime = -1;
 var retryLogged = false;
 
+// Names of the groups a dancer group can follow (DancerGroup.targetMasterBallet, the GameObject names given by the managers)
+var masterBalletNames = ["None"];
+for (var mb = 1; mb <= 8; mb++) masterBalletNames.push("Orb Group " + mb);
+for (var mb = 1; mb <= 8; mb++) masterBalletNames.push("Force Group " + mb);
+for (var mb = 1; mb <= 8; mb++) masterBalletNames.push("Light Group " + mb);
+
+// Parameter definitions, by category. Each one becomes a container with a "Base Value" (and macro weights for the
+// numeric ones with a range). The Unity parameter is "<group component>/<short name>" unless :
+// - "customComponent" : full path in the group ("LineDancePattern/weight")
+// - "field" : another field name on the group component (used for Unity methods, which start with a capital)
+// - "type": "trigger" : the Base Value is a trigger that calls the Unity method, nothing is sent on a full push
+// New entries must keep the Unity default value as default : it is pushed to Unity after every sync.
 var danceGroupParameters = {
 	"Transform":
 	{
@@ -62,15 +78,30 @@ var danceGroupParameters = {
 		"Pattern Axis Spread": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Line Pattern Weight": { "type": "float", "default": 0, "min": 0, "max": 1, "customComponent": "LineDancePattern/weight" },
 		"Line Pattern Speed Weight": { "type": "float", "default": 0, "min": 0, "max": 1, "customComponent": "LineDancePattern/speedWeight" },
+		"Line Axis": { "type": "p3d", "default": [1, 0, 0], "customComponent": "LineDancePattern/lineAxis" },
+		"Line Oscillation Axis": { "type": "p3d", "default": [0, 1, 0], "customComponent": "LineDancePattern/oscillationAxis" },
+		"Line Oscillating Size": { "type": "float", "default": 1, "min": 0, "max": 1, "customComponent": "LineDancePattern/oscilatingSize" },
+		"Line Oscillating Direction": { "type": "float", "default": 0, "min": 0, "max": 1, "customComponent": "LineDancePattern/oscilatingDirection" },
 		"Circle Pattern Weight": { "type": "float", "default": 1, "min": 0, "max": 1, "customComponent": "CircleDancePattern/weight" },
 		"Circle Pattern Speed Weight": { "type": "float", "default": 1, "min": 0, "max": 1, "customComponent": "CircleDancePattern/speedWeight" },
-		"Manual Pattern Weight": { "type": "float", "default": 0, "min": 0, "max": 1, "customComponent": "ManualDancePattern/weight" }
+		"Manual Pattern Weight": { "type": "float", "default": 0, "min": 0, "max": 1, "customComponent": "ManualDancePattern/weight" },
+		"Noise Pattern Weight": { "type": "float", "default": 0, "min": 0, "max": 1, "customComponent": "NoiseDancePattern/weight" },
+		"Noise Amplitude": { "type": "float", "default": 1, "min": 0, "max": 20, "customComponent": "NoiseDancePattern/amplitude" },
+		"Noise Frequency": { "type": "float", "default": 0.2, "min": 0, "max": 5, "customComponent": "NoiseDancePattern/frequency" },
+		"Noise Axes": { "type": "p3d", "default": [1, 1, 1], "customComponent": "NoiseDancePattern/axes" },
+		"Noise Seed": { "type": "int", "default": 0, "min": 0, "max": 1000, "noMacro": true, "customComponent": "NoiseDancePattern/seed" }
 	},
 	"Animation": {
 		"Pattern Speed": { "type": "float", "default": 0.1, "min": -1, "max": 1 },
 		"Pattern Speed Random": { "type": "float", "default": 0, "min": 0, "max": 1 },
-		"Pattern Time Offset": { "type": "float", "default": 0, "min": 0, "max": 1 }
-
+		"Pattern Time Offset": { "type": "float", "default": 0, "min": 0, "max": 1 },
+		"Reset Pattern": { "type": "trigger", "field": "ResetPattern" }
+	},
+	"Master": {
+		"Target Master Ballet": { "type": "enum", "default": "None", "values": masterBalletNames },
+		"Master Ballet Transition": { "type": "float", "default": 2, "min": 0, "max": 20 },
+		"Master Sync Intensity": { "type": "bool", "default": true },
+		"Master Sync Size": { "type": "bool", "default": true }
 	},
 	"Dancer": {
 		"Dancer Size": { "type": "float", "default": 1, "min": 0, "max": 20 },
@@ -151,6 +182,7 @@ var orbGroupParameters = {
 	"General": {
 		"Life": { "type": "float", "default": 20, "min": 0, "max": 120 },
 		"Infinite Life": { "type": "bool", "default": false },
+		"Max Infinite Particles": { "type": "int", "default": 2000000, "min": 1000, "max": 2000000, "noMacro": true },
 		"Emitter Shape": { "type": "enum", "default": "Sphere", "values": ["Sphere", "Plane", "Torus", "Cube", "Pipe", "Egg", "Line", "Circle", "Merkaba", "Pyramid", "Custom", "Augmenta"] },
 		"Render Type": {"type": "enum", "default" : "UnlitAdditive", "values":["UnlitOpaque", "UnlitAdditive", "LitCube", "LitSphere", "LitMesh"]},
 		"Emitter Surface Factor": { "type": "float", "default": 0, "min": 0, "max": 1 },
@@ -175,6 +207,8 @@ var orbGroupParameters = {
 		"Texture Opacity": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Particle Size": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Particle Hyper Size": { "type": "float", "default": 0, "min": 0, "max": 1 },
+		"Metallic": { "type": "float", "default": 0, "min": 0, "max": 1 },
+		"Smoothness": { "type": "float", "default": 0.5, "min": 0, "max": 1 }
 	},
 	"Physics": {
 		"Force Weight": { "type": "float", "default": 1, "min": 0, "max": 1 },
@@ -182,7 +216,53 @@ var orbGroupParameters = {
 		"Velocity Drag": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Noisy Drag": { "type": "float", "default": 0, "min": 0, "max": 1 },
 		"Noisy Drag Frequency": { "type": "float", "default": 0, "min": 0, "max": 1 },
-		"Activate Collision": { "type": "bool", "default": false }
+		"Activate Collision": { "type": "bool", "default": false },
+		"Kill All Particle": { "type": "trigger", "field": "killAllParticle" }
+	},
+	"Bounds": {
+		"Bounds Mode": { "type": "enum", "default": "Off", "values": ["Off", "Wall", "Soft", "Wrap"] },
+		"Bounds Size": { "type": "p3d", "default": [20, 20, 20] },
+		"Bounds Strength": { "type": "float", "default": 0.5, "min": 0, "max": 1 },
+		"Bounds Center": { "type": "p3d", "default": [0, 0, 0] }
+	}
+};
+
+var lightGroupParameters = {
+	"Light": {
+		"Shape": { "type": "enum", "default": "Point", "values": ["Point", "Spot"] },
+		"Color": { "type": "color", "default": [1, 0.55, 0.3] },
+		"Intensity": { "type": "float", "default": 8000, "min": 0, "max": 200000 },
+		"Range": { "type": "float", "default": 30, "min": 0.1, "max": 500 },
+		"Spot Angle": { "type": "float", "default": 60, "min": 1, "max": 179 },
+		"Spot Softness": { "type": "float", "default": 0.5, "min": 0, "max": 1 },
+		"Light Radius": { "type": "float", "default": 0.2, "min": 0, "max": 5 },
+		"Volumetric": { "type": "bool", "default": true },
+		"Volumetric Intensity": { "type": "float", "default": 1, "min": 0, "max": 16 },
+		"Shadows": { "type": "bool", "default": false }
+	},
+	"Mesh": {
+		"Show Mesh": { "type": "bool", "default": true },
+		"Mesh Size": { "type": "float", "default": 0.3, "min": 0, "max": 10 },
+		"Mesh Emission": { "type": "float", "default": 4, "min": 0, "max": 100 }
+	},
+	"Wave": {
+		"Wave": { "type": "enum", "default": "Constant", "values": ["Constant", "Sine", "Triangle", "Saw", "Square", "Noise"] },
+		"Wave Depth": { "type": "float", "default": 1, "min": 0, "max": 1 },
+		"Wave Speed": { "type": "float", "default": 0.5, "min": 0, "max": 10 },
+		"Wave Phase Delay": { "type": "float", "default": 0, "min": 0, "max": 1 }
+	},
+	"Beat": {
+		"BPM": { "type": "float", "default": 0, "min": 0, "max": 300, "field": "bpm" },
+		"Beats Per Flash": { "type": "float", "default": 1, "min": 0.25, "max": 16 },
+		"Flash Length": { "type": "float", "default": 0.5, "min": 0, "max": 1 },
+		"Flash Softness": { "type": "float", "default": 0.2, "min": 0, "max": 1 },
+		"Beat Delay": { "type": "float", "default": 0, "min": 0, "max": 1 },
+		"Reset Beat": { "type": "trigger", "field": "ResetBeat" }
+	},
+	"Color Noise": {
+		"Color Noise": { "type": "float", "default": 0, "min": 0, "max": 1 },
+		"Noise Speed": { "type": "float", "default": 0.3, "min": 0, "max": 5 },
+		"Seed": { "type": "int", "default": 0, "min": 0, "max": 1000, "noMacro": true }
 	}
 };
 
@@ -258,6 +338,10 @@ function moduleParameterChanged(param) {
 		setupOrbs();
 		linkArrays();
 		if (setUnityCount(unityOrbGroupsParam, numOrbGroupsParam.get())) scheduleGroupSync();
+	} else if (param.is(numLightGroupsParam)) {
+		setupLights();
+		linkArrays();
+		if (setUnityCount(unityLightGroupsParam, numLightGroupsParam.get())) scheduleGroupSync();
 	} else if (param.is(numMacrosParam)) {
 		setup();
 	} else if (param.getParent().is(macrosGroup)) {
@@ -265,14 +349,18 @@ function moduleParameterChanged(param) {
 	} else if (param.is(local.parameters.setup.resetAllMacro)) {
 		resetGroupMacro(orbGroups);
 		resetGroupMacro(forces);
+		resetGroupMacro(lightGroups);
 	} else if (param.is(local.parameters.setup.sendDataToUnity)) {
 		requestSync("Send Data to Unity"); // Same as pressing Sync Data
 	} else {
 		// Base value or macro weight of an orb / force group parameter
 		var p4 = param.getParent(4);
-		if (p4 == forceGroupsGroup || p4 == orbGroupsGroup) {
+		if (p4 == forceGroupsGroup || p4 == orbGroupsGroup || p4 == lightGroupsGroup) {
 			var entry = entriesByKey[param.getParent(3).niceName + "/" + param.getParent(2).niceName + "/" + param.getParent().niceName];
-			if (entry != null) updateEntry(entry);
+			if (entry != null) {
+				if (entry.props.type == "trigger") triggerEntry(entry);
+				else updateEntry(entry);
+			}
 		}
 	}
 }
@@ -299,6 +387,7 @@ function updateEntriesForMacro(index) {
 // Chataigne only sends it if it differs from the value Unity already has.
 function updateEntry(entry) {
 	var props = entry.props;
+	if (props.type == "trigger") return; // only sent when pressed, see triggerEntry
 	var value = entry.base.get();
 
 	if (props.min != null && props.max != null) {
@@ -315,6 +404,12 @@ function updateEntry(entry) {
 
 	var target = getUnityTarget(entry);
 	if (target != null && value != null) target.set(value);
+}
+
+// A trigger parameter calls its Unity method (ResetPattern, ResetBeat, killAllParticle)
+function triggerEntry(entry) {
+	var target = getUnityTarget(entry);
+	if (target != null) target.trigger();
 }
 
 function pushAllToUnity() {
@@ -351,6 +446,7 @@ function buildEntries() {
 	unityTargets = {};
 	addEntries(forces, forceGroupParameters, "StandardForceGroup");
 	addEntries(orbGroups, orbGroupParameters, "OrbGroup");
+	addEntries(lightGroups, lightGroupParameters, "LightGroup");
 }
 
 function addEntries(items, parameters, unityComponentName) {
@@ -379,7 +475,7 @@ function addEntries(items, parameters, unityComponentName) {
 					"key": item.niceName + "/" + category.niceName + "/" + paramContainer.niceName,
 					"manager": item.getParent().niceName,
 					"item": item.niceName,
-					"path": props.customComponent != null ? props.customComponent : unityComponentName + "/" + paramContainer.name,
+					"path": props.customComponent != null ? props.customComponent : unityComponentName + "/" + (props.field != null ? props.field : paramContainer.name),
 					"props": props,
 					"base": base,
 					"weights": []
@@ -408,6 +504,7 @@ function linkArrays() {
 	macros = macrosGroup.getControllables();
 	forces = forceGroupsGroup.getContainers();
 	orbGroups = orbGroupsGroup.getContainers();
+	lightGroups = lightGroupsGroup.getContainers();
 	buildEntries();
 }
 
@@ -416,6 +513,7 @@ function linkUnity() {
 	unityBallet = local.values.getChild("ballet");
 	unityOrbGroupsParam = null;
 	unityForceGroupsParam = null;
+	unityLightGroupsParam = null;
 
 	if (unityBallet == null) {
 		script.log("No ballet found");
@@ -424,14 +522,17 @@ function linkUnity() {
 
 	var unityOrbs = unityBallet.getChild(orbGroupsGroup.niceName);
 	var unityForces = unityBallet.getChild(forceGroupsGroup.niceName);
+	var unityLights = unityBallet.getChild(lightGroupsGroup.niceName);
 	if (unityOrbs != null) unityOrbGroupsParam = unityOrbs.getChild("OrbManager/count");
 	if (unityForces != null) unityForceGroupsParam = unityForces.getChild("StandardForceManager/count");
+	if (unityLights != null) unityLightGroupsParam = unityLights.getChild("LightManager/count");
 
 	var newOrbs = setUnityCount(unityOrbGroupsParam, numOrbGroupsParam.get());
 	var newForces = setUnityCount(unityForceGroupsParam, numForceGroupsParam.get());
+	var newLights = setUnityCount(unityLightGroupsParam, numLightGroupsParam.get());
 
 	// New groups only appear in the structure after a sync : their values are pushed after it
-	if (newOrbs || newForces) scheduleGroupSync();
+	if (newOrbs || newForces || newLights) scheduleGroupSync();
 	else pushAllToUnity();
 }
 
@@ -461,6 +562,7 @@ function setupMacros() {
 
 	setupForces();
 	setupOrbs();
+	setupLights();
 
 	linkArrays();
 }
@@ -473,6 +575,11 @@ function setupForces() {
 function setupOrbs() {
 	if (numOrbGroupsParam == null) return;
 	setupParameters(orbGroupsGroup, numOrbGroupsParam, orbGroupParameters, orbGroups, "Orb Group");
+}
+
+function setupLights() {
+	if (numLightGroupsParam == null || lightGroupsGroup == null) return;
+	setupParameters(lightGroupsGroup, numLightGroupsParam, lightGroupParameters, lightGroups, "Light Group");
 }
 
 function setupParameters(group, numParam, parameters, items, prefix) {
@@ -553,6 +660,8 @@ function addParametersToItem(item, parameters) {
 				paramContainer.addBoolParameter("Base Value", "Base value for this parameter", paramDefault);
 			} else if (paramType == "string") {
 				paramContainer.addStringParameter("Base Value", "Base value for this parameter", paramDefault);
+			} else if (paramType == "trigger") {
+				paramContainer.addTrigger("Base Value", "Calls this action in Unity");
 			}
 		}
 	}
@@ -596,7 +705,7 @@ function getPropForParam(param) {
 	var group = param.getParent(3);
 
 	var isDanceGroup = danceGroupParameters[paramGroupName] != null;
-	var items = isDanceGroup ? danceGroupParameters : (group.is(forceGroupsGroup) ? forceGroupParameters : orbGroupParameters);
+	var items = isDanceGroup ? danceGroupParameters : (group.is(forceGroupsGroup) ? forceGroupParameters : (group.is(lightGroupsGroup) ? lightGroupParameters : orbGroupParameters));
 
 	var groupProps = items[paramGroupName];
 	if (groupProps == null) return null;
