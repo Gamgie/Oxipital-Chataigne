@@ -45,7 +45,10 @@ var SYNC_TIMEOUT = 8;        // no structure received this long after a sync : U
 var RECONNECT_GRACE = 20;    // a reconnection this soon after a sync comes from that sync
 var GROUP_SYNC_DELAY = 1.5;  // leaves Unity the time to create the new groups
 
+var STARTUP_SYNC_DELAY = 2;  // one sync shortly after loading : "Is Connected" is saved with the session, so a session
+                             // saved while connected loads with it on although nothing is connected yet
 var clock = 0;               // seconds, advanced by update()
+var startupSyncTime = STARTUP_SYNC_DELAY;
 var lastSyncTime = 0;
 var syncPending = false;
 var unityReachable = false;
@@ -275,7 +278,7 @@ function init() {
 	setup();
 	linkUnity();
 	wasConnected = isConnectedParam.get();
-	unityReachable = wasConnected;
+	unityReachable = false; // known after the startup sync
 }
 
 // Runs on the script's own thread : keep it to the link with Unity, nothing that rebuilds containers
@@ -290,7 +293,10 @@ function update(deltaTime)
 	}
 
 	if (!syncPending) {
-		if (connected && !wasConnected && clock - lastSyncTime > RECONNECT_GRACE) {
+		if (startupSyncTime >= 0 && clock >= startupSyncTime) {
+			startupSyncTime = -1;
+			requestSync("Syncing once at startup");
+		} else if (connected && !wasConnected && clock - lastSyncTime > RECONNECT_GRACE) {
 			requestSync("Unity is back, syncing once");
 		} else if (!connected && !unityReachable && clock - lastSyncTime > RETRY_DELAY) {
 			if (!retryLogged) script.log("Unity not reachable, trying again every " + RETRY_DELAY + " s");
